@@ -1,0 +1,216 @@
+---
+title: "02 Data Preprocessing"
+output: html_document
+date: "2025-12-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+
+# Load required libraries
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyverse)
+library(ggplot2)
+library(ineq)
+```
+
+## 1. Load Raw Datasets
+
+We use UTF-8 encoding to ensure all characters (including special country names) are read correctly.
+
+```{r load-data}
+# Define the path to raw data
+base_path <- "dataset/data_raw/"
+
+# Load datasets with UTF-8 encoding
+charging_station    <- read_csv(paste0(base_path, "charging_station.csv"), locale = locale(encoding = "UTF-8"))
+charging_station_ml <- read_csv(paste0(base_path, "charging_station_ml.csv"), locale = locale(encoding = "UTF-8"))
+country_summary     <- read_csv(paste0(base_path, "country_summary.csv"), locale = locale(encoding = "UTF-8"))
+ev_models           <- read_csv(paste0(base_path, "ev_models.csv"), locale = locale(encoding = "UTF-8"))
+world_summary       <- read_csv(paste0(base_path, "world_summary.csv"), locale = locale(encoding = "UTF-8"))
+```
+
+## 2. Task 1 Processing: Station Level Cleaning
+
+This section handles geographic filtering, de-duplication, and power class normalization for individual charging sites.
+
+```{r task1-processing}
+# 1. Basic type adjustment & country code normalization
+stations_step1 <- charging_station %>%
+  mutate(
+    ports        = as.integer(ports),
+    country_code = toupper(country_code)
+  )
+
+# 2. Geographic validity filtering (removing missing/invalid coordinates)
+stations_step2 <- stations_step1 %>%
+  filter(
+    !is.na(latitude), !is.na(longitude),
+    dplyr::between(latitude, -90, 90),
+    dplyr::between(longitude, -180, 180),
+    !(latitude == 0 & longitude == 0)
+  )
+
+# 3. Country field cleaning (strictly 2 uppercase letters)
+stations_step3 <- stations_step2 %>%
+  filter(
+    !is.na(country_code),
+    nchar(country_code) == 2,
+    str_detect(country_code, "^[A-Z]{2}$")
+  )
+
+# 4. De-duplication
+stations_step4 <- stations_step3 %>%
+  arrange(id) %>%
+  distinct(id, .keep_all = TRUE) %>%
+  distinct(latitude, longitude, .keep_all = TRUE)
+
+# 5. Power and Port cleaning
+stations_step5 <- stations_step4 %>%
+  mutate(
+    power_kw = ifelse(is.na(power_kw) | power_kw <= 0, NA_real_, power_kw),
+    ports = ifelse(is.na(ports) | ports <= 0, NA_integer_, ports)
+  )
+
+# 6. Handle Power Class unknowns and Impute missing ports with median
+median_ports <- median(stations_step5$ports, na.rm = TRUE)
+
+stations_final <- stations_step5 %>%
+  mutate(
+    power_class = ifelse(power_class == "UNKNOWN" | is.na(power_class), "POWER_UNKNOWN", power_class),
+    ports = ifelse(is.na(ports), median_ports, ports)
+  ) %>%
+  select(id, name, city, country_code, latitude, longitude, ports, power_kw, power_class, is_fast_dc)
+```
+
+## 3. Task 2 Processing: City Level Feature Engineering
+
+This section focuses on the city-level dataset (`charging_station_ml.csv`), adding derived features like development stages.
+
+```{r task2-processing}
+# 1. Clean basic city data
+ml_base <- charging_station_ml %>%
+  mutate(country_code = toupper(country_code)) %>%
+  filter(!is.na(latitude), !is.na(longitude), !(latitude == 0 & longitude == 0)) %>%
+  mutate(
+    station_count = ifelse(is.na(station_count) | station_count <= 0, NA_integer_, station_count),
+    fast_station_share = ifelse(is.na(fast_station_share) | fast_station_share < 0, 0, fast_station_share),
+    median_power_kw = ifelse(is.na(median_power_kw) | median_power_kw <= 0, NA_real_, median_power_kw)
+  ) %>%
+  filter(!is.na(station_count), !is.na(fast_station_share), !is.na(median_power_kw))
+
+# 2. Add developmental features
+ml_clean <- ml_base %>%
+  mutate(
+    # Create a flag for cities dominated by fast charging (>70% share, >50kW median power, min 5 stations)
+    is_fast_dominant = (fast_station_share > 0.7 & median_power_kw > 50 & station_count >= 5),
+    
+    # Categorize cities by infrastructure maturity
+    dev_stage = case_when(
+      station_count < 20 & fast_station_share < 0.3 ~ "Early",
+      station_count < 100 & fast_station_share < 0.5 ~ "Growth",
+      station_count < 500 & fast_station_share < 0.7 ~ "Developing",
+      TRUE ~ "Mature"
+    ),
+    
+    # Log transform for better visualization scaling
+    log_station_count = log10(station_count + 1)
+  )
+```
+
+## 4. Task 3 Processing: World & Country Summary Cleaning
+
+This section handles the high-level summaries, focusing on data structure integrity and outlier detection using the IQR method.
+
+```{r task3-processing}
+# 1. Basic cleaning and de-duplication
+world_clean <- world_summary %>% drop_na() %>% distinct()
+country_clean <- country_summary %>% drop_na() %>% distinct()
+
+# 2. Outlier Detection Visualization
+# (This plot is for report inspection only)
+ggplot(world_clean, aes(x = "", y = station_count)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "Task 3: World Summary Station Count Outliers") +
+  theme_minimal()
+
+# 3. Flagging Outliers using IQR (Interquartile Range)
+world_final <- world_clean %>%
+  mutate(is_outlier = ifelse(station_count > (quantile(station_count, 0.75) + 1.5 * IQR(station_count)), TRUE, FALSE))
+
+country_final <- country_clean %>%
+  mutate(is_outlier = ifelse(port_count > (quantile(port_count, 0.75) + 1.5 * IQR(port_count)), TRUE, FALSE))
+```
+
+## 5. Task 4 Processing: EV Model Categorization
+
+This section cleans the `ev_models.csv` dataset, standardizing country origins and categorizing body styles for market analysis.
+
+```{r task4-processing}
+ev_clean <- ev_models %>%
+  mutate(
+    # 1. Standardize Country Name (Origin)
+    origin_country = str_to_lower(str_trim(origin_country)),
+    origin_country = case_when(
+      origin_country %in% c("us", "usa", "united states", "united state") ~ "USA",
+      origin_country %in% c("uk", "united kingdom") ~ "UK",
+      origin_country %in% c("de", "germany") ~ "Germany",
+      origin_country %in% c("fr", "france") ~ "France",
+      origin_country %in% c("se", "sweden") ~ "Sweden",
+      origin_country %in% c("it", "italy") ~ "Italy",
+      origin_country %in% c("jp", "japan") ~ "Japan",
+      origin_country %in% c("kr", "south korea") ~ "South Korea",
+      origin_country %in% c("cn", "china") ~ "China",
+      TRUE ~ str_to_title(origin_country)
+    ),
+    
+    # 2. Body Style Categorization
+    style_category = case_when(
+      str_detect(body_style, regex("SUV|Crossover|Pickup|Van|MPV", ignore_case = TRUE)) ~ "SUV & Utility",
+      str_detect(body_style, regex("Sedan|Saloon|Liftback|Wagon|Shooting Brake", ignore_case = TRUE)) ~ "Sedan & Wagon",
+      str_detect(body_style, regex("Hatchback|City|Compact", ignore_case = TRUE)) ~ "Hatchback & Compact",
+      TRUE ~ "Other"
+    ),
+    
+    powertrain = str_to_upper(powertrain)
+  ) %>%
+  
+  # 3. Market Filtering: Retain models in Global, US, and EU markets
+  filter(
+    str_detect(market_regions, regex("US|EU|UK|CA|Global|America|Europe", ignore_case = TRUE))
+  ) %>%
+  
+  # 4. Calculate Model Age (Age in 2025)
+  mutate(age_2025 = 2025 - first_year)
+```
+
+## 6. Save All Cleaned Datasets
+
+Finally, we export all cleaned datasets to the `dataset/data_clean/` directory in one batch.
+
+```{r save-data}
+# Define clean path and ensure directory exists
+clean_path <- "dataset/data_clean/"
+if(!dir.exists(clean_path)) dir.create(clean_path, recursive = TRUE)
+
+# 1. Save Task 1 Data
+write_csv(stations_final, paste0(clean_path, "charging_station_clean.csv"))
+
+# 2. Save Task 2 Data
+write_csv(ml_clean, paste0(clean_path, "charging_stations_ml_clean.csv"))
+
+# 3. Save Task 3 Data
+write_csv(world_final, paste0(clean_path, "cleaned_world_summary.csv"))
+write_csv(country_final, paste0(clean_path, "cleaned_country_summary.csv"))
+
+# 4. Save Task 4 Data
+write_csv(ev_clean, paste0(clean_path, "ev_models_clean.csv"))
+
+message("All cleaned datasets have been saved successfully to dataset/data_clean/")
+```

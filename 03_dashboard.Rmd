@@ -1,0 +1,865 @@
+---
+title: "EV Charging Analytics Dashboard"
+Date: "2025-12-19"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: default
+    social: []
+    source_code: embed
+    css: custom.css
+---
+
+
+```{r setup, include=FALSE}
+# 1. Install & load required packages ------------------------
+packages <- c(
+  "flexdashboard", "knitr", "DT", "rpivotTable", "ggplot2",
+  "plotly", "dplyr", "openintro", "highcharter", "ggvis",
+ "leaflet", "leafgl", "sf", "readr"
+)
+
+new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+if (length(new_packages) > 0) install.packages(new_packages)
+
+library(flexdashboard)
+library(knitr)
+library(DT)
+library(rpivotTable)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(openintro)
+library(highcharter)
+library(ggvis)
+library(leaflet)
+library(leafgl)
+library(sf)
+library(readr)
+library(ineq)
+library(tidyverse)
+# 2. Load all Task 1 data prep (this script defines stations_world,
+#    stations_task1, stations_task1_sf, fast_mix_global, fast_country_top35, etc.)
+source("R/task1_module.R")
+source("R/task2_module.R")
+source("R/task3_module.R")
+source("R/task4_module.R")
+
+
+# 3.Helper Function: Apply Dark Theme to Plotly Charts
+apply_dark_theme <- function(p, title_text = NULL, show_legend = TRUE) {
+  p %>% plotly::layout(
+    # 1. General background and font style
+    paper_bgcolor = "#0d1117",
+    plot_bgcolor  = "#0d1117",
+    font          = list(color = "white", family = "Calibri"),
+    
+    # 2. topic
+    title = if (!is.null(title_text)) list(
+      text = title_text,
+      x    = 0.5,
+      font = list(color = "white", size = 20) 
+    ) else NULL,
+    
+    # 3. coordinator
+    xaxis = list(
+      tickfont  = list(color = "white"),
+      titlefont = list(color = "white"),
+      gridcolor = "#2c3e50" 
+    ),
+    yaxis = list(
+      tickfont  = list(color = "white"),
+      titlefont = list(color = "white"),
+      gridcolor = "#2c3e50"
+    ),
+    
+    # 4. graph
+    legend = if (show_legend) list(
+      font = list(color = "white", size = 12),
+      bgcolor = "rgba(0,0,0,0)"
+    ) else list(showlegend = FALSE),
+    
+    # 5. 
+    margin = list(t = 60, b = 40, l = 60, r = 40)
+  )
+}
+
+```
+
+
+Task 1
+===========================================================
+
+Row {data-height=120}
+---------------------
+
+### Total Stations
+```{r}
+valueBox(
+  paste0(nrow(stations_task1), "\nTotal Stations (EU & Americas)"),
+  icon  = "fa-bolt"
+)
+
+```
+
+### Total Ports
+```{r}
+valueBox(
+  paste0(sum(stations_task1$ports, na.rm = TRUE), "\nTotal Ports"),
+  icon  = "fa-plug"
+)
+
+```
+
+### Avg Power (kW)
+```{r}
+valueBox(
+  paste0(round(mean(stations_task1$power_kw, na.rm = TRUE), 1), "\nAvg Power (kW)"),
+  icon  = "fa-tachometer"
+)
+
+```
+
+### Countries
+```{r}
+valueBox(
+  paste0(dplyr::n_distinct(stations_task1$country_code), "\nCountries (EU & Americas)"),
+  icon  = "fa-globe"
+)
+
+```
+
+Row {.tabset .vertical-tabs data-height=800}
+---------------------
+
+### Advanced Map
+
+```{r}
+### Advanced Map
+leaflet(stations_task1_sf,options = leafletOptions(preferCanvas = TRUE)) %>%
+  # Dark themed basemap
+  
+  addProviderTiles(providers$CartoDB.DarkMatter) %>%
+  
+  # WebGL point layer for all stations (colored by fast / non-fast)
+  leafgl::addGlPoints(
+    data        = dplyr::filter(stations_task1_sf, fast_type == "Fast-DC"),
+    fillColor   = "#FFB347",
+    fillOpacity = 0.5,
+    radius      = 2,
+    group       = "Fast-DC"
+  ) %>%
+  # 2. Draw normal ST second (blue on top)
+  leafgl::addGlPoints(
+    data        = dplyr::filter(stations_task1_sf, fast_type == "Non-fast"),
+    fillColor   = "#33CCFF",
+    fillOpacity = 0.5,
+    radius      = 1.7,
+    group       = "Non-fast"
+  ) %>%
+  
+  # Force the initial view to focus on Europe + Americas
+  # This also forces a redraw so points are visible immediately.
+  fitBounds(
+    lng1 = -170, lat1 = -60,   # bottom-left corner (South America / Pacific)
+    lng2 =  60,  lat2 =  75    # top-right corner (Northern Europe)
+  ) %>%
+  
+  # Legend with human-friendly labels
+  addLegend(
+    position = "bottomright",
+    colors   = c("#33CCFF", "#FFB347"),
+    labels   = c("Slow / Normal charging", "Fast DC charging"),
+    title    = "Charging type",
+    opacity  = 0.9
+  )
+
+
+```
+
+
+### Charging Analysis
+
+```{r}
+# ========================
+# 1. prepare p_mix (Donut)
+# ========================
+fast_mix_display <- fast_mix_global %>%
+  dplyr::mutate(
+    label_display = dplyr::recode(fast_type,
+      "Fast-DC"  = "Fast DC",
+      "Non-fast" = "Slow / AC"
+    ),
+    color_hex = ifelse(fast_type == "Fast-DC", "#FFB347", "#33CCFF"),
+    pct = share * 100
+  )
+
+p_mix <- plotly::plot_ly(
+  data   = fast_mix_display,
+  labels = ~label_display,
+  values = ~pct,
+  type   = "pie",
+  hole   = 0.55,
+  text         = ~paste0(round(pct), "%"),
+  textinfo     = "text",
+  textposition = "inside",
+  textfont     = list(size = 24, color = "white", family = "Calibri"), 
+  hovertemplate = "%{label}<br>Share: %{value:.1f}%<extra></extra>",
+  marker = list(colors = ~color_hex, line = list(color = "#0d1117", width = 1)),
+  sort = FALSE
+) %>%
+  apply_dark_theme(title_text = "Global Charging Mix") %>%
+  layout(
+    legend = list(orientation = "h", x = 0.5, y = -0.1, xanchor = "center"), 
+    margin = list(l = 20, r = 20, t = 60, b = 20)
+  )
+
+# ========================
+# 2. prepare p_pareto (Bar)
+# ========================
+pareto_df <- fast_country_top35 %>%
+  dplyr::mutate(
+    fast_share_pct = fast_share * 100,
+    cum_share_pct  = cum_fast_share * 100
+  )
+
+p_pareto <- plotly::plot_ly(pareto_df) %>%
+  plotly::add_bars(
+    x    = ~country_code,
+    y    = ~fast_share_pct,
+    name = "Share %",
+    marker = list(color = "#33CCFF"),
+    hovertemplate = "Country: %{x}<br>Share: %{y:.2f}%<extra></extra>"
+  ) %>%
+  plotly::add_lines(
+    x     = ~country_code,
+    y     = ~cum_share_pct,
+    name  = "Cumulative %",
+    yaxis = "y2",
+    mode  = "lines+markers",
+    line  = list(color = "warning", width = 2),
+    hovertemplate = "Cumulative: %{y:.1f}%<extra></extra>"
+  ) %>%
+  apply_dark_theme(title_text = "Fast-DC Ports (Pareto)") %>%
+  plotly::layout(
+    xaxis = list(title = "", tickangle = -45),
+    yaxis = list(title = "Share (%)", range = c(0, 30)),
+    yaxis2 = list(
+      title      = "Cumul. (%)",
+      overlaying = "y",
+      side       = "right",
+      range      = c(0, 105),
+      tickfont   = list(color = "white"),
+      titlefont  = list(color = "white")
+    ),
+    legend = list(orientation = "h", x = 0.5, y = 1.05, xanchor = "center"),
+    margin = list(l = 40, r = 40, t = 60, b = 20)
+  )
+
+# ========================
+# 3. output
+# ========================
+shiny::fillRow(p_mix, p_pareto, flex = c(3, 7), height = "100%")
+
+```
+### Power Class Mix
+
+```{r}
+
+
+# 2. Plot Stacked Bar Chart
+p_power_class <- plotly::plot_ly(
+  data      = pc_df_ready,
+  x         = ~country_code,
+  y         = ~stations,
+  color     = ~power_class,
+  type      = "bar",
+  hovertext = ~hover_text,
+  hoverinfo = "text"
+) %>%
+  # 3. Apply shared dark theme
+  apply_dark_theme(title_text = "Stations by Power Class (Top 35)") %>%
+  
+  # 4. Specific adjustments (Stack mode)
+  plotly::layout(
+    barmode = "stack",
+    xaxis   = list(title = "", tickangle = -45),
+    yaxis   = list(title = "Number of stations")
+  )
+
+p_power_class
+```
+
+Task 2
+===========================================================
+
+Row {data-height=120}
+---------------------
+
+### Total Cities
+```{r}
+valueBox(
+  paste0(dashboard_metrics$total_sampled, "\nCities (Sampled)"),
+  icon = "fa-city",
+  color = "primary"
+)
+```
+
+### Average Stations per City
+```{r}
+avg_stations <- round(mean(dashboard_data$station_count, na.rm = TRUE), 1)
+valueBox(
+  paste0(avg_stations, "\nAvg. Stations/City"),
+  icon = "fa-charging-station",
+  color = "info"
+)
+```
+
+### Fast-Dominant Cities
+```{r}
+fast_dom <- dashboard_data %>%
+  filter(fast_station_share > 0.7, median_power_kw > 50, station_count >= 5) %>%
+  nrow()
+
+valueBox(
+  paste0(fast_dom, "\nFast-Dominant Cities"),
+  icon = "fa-bolt",
+  color = "warning"
+)
+```
+
+
+
+### Gini Coefficient
+
+```{r}
+gini_val <- dashboard_metrics$gini_coefficient
+valueBox(
+  paste0(round(gini_val, 3), "\nGini Coefficient"),
+  icon = "fa-chart-line",
+  color = ifelse(gini_val > 0.6, "danger", 
+                 ifelse(gini_val > 0.4, "warning", "success"))
+)
+```
+
+Row {.tabset .vertical-tabs data-height=800}
+---------------------
+
+
+
+### Inequality Analysis Lorenz Curve
+```{r}
+#
+# Lorenz Curve
+create_lorenz_plot(dashboard_data, dashboard_metrics$gini_coefficient)
+```
+### Inequality Analysis Top 10% Cities
+```{r }
+# Concentration Pie Chart
+create_inequality_pie(dashboard_data, top_pct = 0.1)
+```
+
+
+
+
+
+
+### Fast-Charging Share vs. Median Power
+```{r }
+# Fast-Charging Infrastructure Scatter Plot
+create_fast_scatter(dashboard_data, size_by_log = TRUE)
+```
+
+
+
+### City charging Infrastructure clustering
+```{r}
+# 
+# PCA Visualization of City Clusters
+create_cluster_pca(dashboard_data, n_clusters = 9)
+```
+
+
+
+
+Task 3
+===========================================================
+
+Row {data-height=120}
+---------------------
+
+### Total Fast Charging Stations
+```{r}
+valueBox(
+  paste0(sum(world_summary$fast_station_count, na.rm = TRUE), "\nTotal Fast Charging Stations"),
+  icon  = "fa-bolt"
+)
+
+```
+
+### Total Ultra Charging Stations
+```{r}
+valueBox(
+  paste0(sum(world_summary$dc_ultra_station_count, na.rm = TRUE), "\nTotal Ultra Charging Stations"),
+  icon  = "fa-rocket"
+)
+
+```
+
+### Avg Fast Station Share
+```{r}
+valueBox(
+  paste0(format(round(mean(world_summary$fast_station_share, na.rm = TRUE), 1), nsmall = 1), 
+         "\nAvg Fast Station Share"),
+  icon    = "fa-percent"
+)
+```
+
+
+Row {.tabset .vertical-tabs data-height=800}
+---------------------
+
+### Charging Stations Bar Chart (Top 20)
+
+```{r}
+world_summary <- read_csv("dataset/data_clean/cleaned_world_summary.csv")
+country_summary <- read_csv("dataset/data_clean/cleaned_country_summary.csv")
+
+# Assuming world_summary already contains the is_european_or_us column
+# Filter and sort by charging station count, keeping only countries where is_european_or_us is 1
+sorted_data <- world_summary %>%
+  filter(is_european_or_us == 1) %>%  # Select only European and American countries
+  arrange(desc(station_count)) %>%
+  mutate(rank = row_number()) %>%  # Create a ranking variable
+  select(country, station_count, rank) %>%
+  head(20)  # Keep only the top 20 countries
+
+# Create the bar chart
+# Modification: Add 'text' parameter inside aes() to customize the tooltip content
+p <- ggplot(data = sorted_data, 
+            aes(x = reorder(country, station_count), 
+                y = station_count, 
+                fill = station_count,
+                text = paste0("Country: ", country, "\nStations: ", station_count))) + # Define custom hover text
+  geom_bar(stat = "identity", width = 0.8) +
+  coord_flip() +
+  scale_fill_gradient(low = "#87CEEB", high = "#0a2fcc", name = "Number of Charging Stations") +
+  labs(title = "Top 20 European and American Countries by Number of Charging Stations",
+       x = "European and American Countries",
+       y = "Number of Charging Stations") +
+  scale_y_continuous(breaks = seq(0, max(sorted_data$station_count), by = 10000)) +  
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size = 9, family = "Arial Black", color = "white"),
+        axis.text.y = element_text(size = 9, family = "Arial Black", color = "white"),
+        legend.title = element_text(color = "white"),
+        legend.text = element_text(color = "white"))
+
+# Convert ggplot object to plotly object
+# Modification: Set 'tooltip' to "text" to force Plotly to use only the custom text defined above
+p_plotly <- ggplotly(p, tooltip = "text")
+
+# Apply layout settings (Kept unchanged)
+p_plotly <- p_plotly %>% layout(
+  barmode = "stack",
+  title = list(
+    text = "Top 20 European and American Countries by Number of Charging Stations",
+    x = 0.5,
+    font = list(color = "white", size = 14)
+  ),
+  xaxis = list(
+    title = list(font = list(color = "white")),
+    tickangle = -45,
+    tickfont = list(color = "white")
+  ),
+  yaxis = list(
+    title = list(font = list(color = "white")),
+    tickfont = list(color = "white")
+  ),
+  legend = list(
+    title = list(font = list(color = "white")),
+    font = list(color = "white")
+  ),
+  paper_bgcolor = "#0d1117",
+  plot_bgcolor = "#0d1117",
+  font = list(color = "white")
+)
+
+# Display the plotly graph
+p_plotly
+```
+
+### Ports Bar Chart (Top 20)
+```{r}
+# Data processing (Keep only the top 20 countries)
+sorted_data <- world_summary %>%
+  filter(is_european_or_us == 1) %>%  # Select only European and American countries
+  arrange(desc(port_count)) %>%
+  mutate(rank = row_number()) %>%  # Create a ranking variable
+  select(country, port_count, rank) %>%
+  head(20)  # Keep only the top 20 countries
+
+# Create the bar chart
+# Modification: Add 'text' parameter inside aes() to customize the tooltip content
+p <- ggplot(data = sorted_data, 
+            aes(x = reorder(country, port_count), 
+                y = port_count, 
+                fill = port_count,
+                text = paste0("Country: ", country, "\nPorts: ", port_count))) + # Define custom hover text
+  geom_bar(stat = "identity", width = 0.8) +
+  coord_flip() +
+  scale_fill_gradient(low = "#fee08b", high = "#cB0000", name = "Number of Ports") +  # Gradient from yellow to red
+  labs(title = "Top 20 European and American Countries by Number of Ports",
+       x = "European and American Countries",
+       y = "Number of Ports") +
+  scale_y_continuous(breaks = seq(0, max(sorted_data$port_count), by = 10000)) +  
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size = 9, family = "Arial Black", color = "white"),
+        axis.text.y = element_text(size = 9, family = "Arial Black", color = "white"),
+        legend.title = element_text(color = "white"),  # Legend title color
+        legend.text = element_text(color = "white"))
+
+# Convert ggplot object to plotly object
+# Modification: Set 'tooltip' to "text" to force Plotly to use only the custom text defined above
+p_plotly <- ggplotly(p, tooltip = "text")
+
+# Apply layout settings
+p_plotly <- p_plotly %>% layout(
+  barmode = "stack",
+  title = list(
+    x = 0.5,
+    font = list(color = "white", size = 14)  # Title font color
+  ),
+  xaxis = list(
+    title = list(font = list(color = "white")),  # Axis title color
+    tickangle = -45,
+    tickfont = list(color = "white")  # Tick labels color
+  ),
+  yaxis = list(
+    title = list(font = list(color = "white")),  # Axis title color
+    tickfont = list(color = "white")  # Tick labels color
+  ),
+  legend = list(
+    title = list(font = list(color = "white")),  # Legend title color
+    font = list(color = "white")  # Legend text color
+  ),
+  paper_bgcolor = "#0d1117",
+  plot_bgcolor = "#0d1117",
+  font = list(color = "white")  # Default font color for the plot
+)
+
+# Display the plotly graph
+p_plotly
+
+```
+### Infrastructure Level Clustering Scatter Plot
+```{r}
+set.seed(123)  # Set random seed for reproducibility
+
+# Filter to select only European and American countries
+data_eu_us <- world_summary %>%
+  filter(is_european_or_us == 1)
+
+# Select indicators for clustering
+clustering_data <- data_eu_us %>%
+  select(station_count, max_power_kw, fast_station_share) %>%
+  filter(complete.cases(.))  # Remove rows with missing values
+
+# Standardize the indicators
+clustering_scaled <- scale(clustering_data)
+
+# Set the number of clusters
+k <- 3
+
+# Perform K-means clustering
+kmeans_result <- kmeans(clustering_scaled, centers = k, nstart = 100)
+
+# Add the cluster memberships back to the original data
+data_eu_us$cluster <- as.factor(kmeans_result$cluster)
+
+# Create a scatter plot (using station_count and fast_station_share as variables)
+p <- ggplot(data_eu_us, aes(x = station_count, y = fast_station_share, 
+                             color = cluster, 
+                             text = paste("max_power_kw:", max_power_kw, "<br>country:", country))) +
+  geom_point(size = 2) +
+  labs(title = "Infrastructure Level Clustering Scatter Plot (EU & Americas)",
+       x = "Number of Charging Stations",
+       y = "Fast Charging Station Share",
+       color = "Cluster") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial Black", color = "white"),
+    plot.title = element_text(hjust = 0.5),  # Center the plot title
+    axis.title.x = element_text(color = "white"),  # Set x-axis title color
+    axis.title.y = element_text(color = "white"),  # Set y-axis title color
+    axis.text.x = element_text(color = "white"),  # Set x-axis text color
+    axis.text.y = element_text(color = "white")   # Set y-axis text color
+  )
+
+# Convert to an interactive Plotly graph
+p_plotly <- ggplotly(p)
+
+# Set background and font colors
+p_plotly <- p_plotly %>% layout(
+  paper_bgcolor = "#0d1117",
+  plot_bgcolor = "#0d1117",
+  font = list(color = "white"),
+  title = list(text = "Infrastructure Level Clustering Scatter Plot (EU & Americas)", 
+               font = list(color = "white", size = 14))
+)
+
+# Display the plot
+p_plotly
+```
+
+
+### Charging Stations Heatmap by Power Class 
+
+```{r}
+# Filter to select only European and American countries
+data_eu_us <- world_summary %>%
+  filter(is_european_or_us == 1)
+
+# Ensure dc_fast_station_count and dc_ultra_station_count are numeric types
+data_eu_us$dc_fast_station_count <- as.numeric(as.character(data_eu_us$dc_fast_station_count))
+data_eu_us$dc_ultra_station_count <- as.numeric(as.character(data_eu_us$dc_ultra_station_count))
+
+# Remove countries where both dc_fast_station_count and dc_ultra_station_count are less than 100
+data_eu_us <- data_eu_us %>%
+  filter(!(dc_fast_station_count < 100 & dc_ultra_station_count < 100))
+
+# Create a long format dataset for heatmap
+heatmap_data <- data_eu_us %>%
+  select(country, dc_fast_station_count, dc_ultra_station_count) %>%
+  pivot_longer(cols = c(dc_fast_station_count, dc_ultra_station_count),
+               names_to = "station_type", values_to = "count")
+
+# Use Plotly to create a heatmap
+plot_ly(data = heatmap_data, 
+        x = ~station_type, 
+        y = ~reorder(country, count), 
+        z = ~log(count + 1),  # Log transformation for better visualization
+        type = "heatmap",
+        colorscale = "Reds") %>%
+  layout(
+    title = list(
+      text = "Stations by Power Class (EU & Americas)",
+      x = 0.5,
+      font = list(color = "white", size = 14)
+    ),
+    xaxis = list(
+      title = "Charging Station Type",
+      tickangle = 0,  # Angle for the x-axis labels
+      titlefont = list(color = "white")  # Titles for axes
+    ),
+    yaxis = list(
+      title = "Country",
+      titlefont = list(color = "white")  # Titles for axes
+    ),
+    paper_bgcolor = "#0d1117",  # Background color of the paper
+    plot_bgcolor = "#0d1117",   # Background color of the plot
+    font = list(color = "white"), # General font color
+    coloraxis = list(colorbar = list(title = list(text = "Count (log scale)")))  # Color bar
+  )
+```
+Task 4
+===========================================================
+Row {data-height=120}
+---------------------
+
+### Total Models
+```{r}
+if(exists("ev_models")) {
+  valueBox(
+    paste0(nrow(ev_models), "\nTotal EV Models"),
+    icon = "fa-car",
+  )
+}
+```
+
+
+
+
+### Dominant Style
+```{r}
+if(exists("ev_models")) {
+  top_style <- names(sort(table(ev_models$style_category), decreasing=TRUE))[1]
+  valueBox(
+    paste0(top_style, "\nTop Body Style"),
+    icon = "fa-trophy",
+  )
+}
+```
+
+
+
+
+### Avg Model Age
+```{r}
+if(exists("ev_models")) {
+  avg_age <- round(mean(ev_models$age_2025, na.rm=TRUE), 1)
+  valueBox(
+    paste0(avg_age, " Years\nAvg Model Age"),
+    icon = "fa-clock-o",
+  )
+}
+```
+
+
+
+
+### Active Markets
+```{r}
+if(exists("ev_models")) {
+  n_countries <- n_distinct(ev_models$origin_country)
+  valueBox(
+    paste0(n_countries, "\nOrigin Countries"),
+    icon = "fa-globe",
+  )
+}
+```
+
+
+
+
+Row {.tabset .vertical-tabs data-height=800}
+---------------------
+
+### Global Market Structure
+
+```{r}
+if(exists("ev_models")) {
+  pie_data <- ev_models %>% count(style_category) %>% mutate(pct = n/sum(n)*100)
+  
+  plot_ly(pie_data, labels = ~style_category, values = ~n, type = 'pie',
+          hole = 0.55,
+          textinfo = 'label+percent',
+          textfont = list(color = "white"),
+          marker = list(colors = c('#33CCFF', '#FFB347', '#00cc96', '#ab63fa'),
+                        line = list(color = "#0d1117", width = 1))) %>% 
+    layout(
+      title = list(text = "Global EV Market by Body Style", font = list(color = "white", size = 14)),
+      paper_bgcolor = task4_theme$paper_bgcolor,
+      plot_bgcolor  = task4_theme$plot_bgcolor,
+      font = task4_theme$font,
+      showlegend = TRUE,
+      legend = task4_theme$legend,
+      margin = list(t = 50, b = 20, l = 20, r = 20)
+    )
+}
+```
+
+### Regional Preferences
+
+```{r}
+if(exists("ev_models")) {
+  heatmap_data <- ev_models %>%
+    count(origin_country, style_category) %>%
+    pivot_wider(names_from = style_category, values_from = n, values_fill = 0)
+  
+  plot_ly(
+    x = colnames(heatmap_data)[-1],
+    y = heatmap_data$origin_country,
+    z = as.matrix(heatmap_data[, -1]),
+    type = "heatmap",
+    colors = "Blues",
+    hovertemplate = paste("Country: %{y}<br>Style: %{x}<br>Count: %{z}<extra></extra>")
+  ) %>%
+    layout(
+      title = list(text = "Regional Preference (Heatmap)", font = list(color = "white", size = 14)),
+      xaxis = modifyList(task4_theme$xaxis, list(title = "Body Style")),
+      yaxis = modifyList(task4_theme$yaxis, list(title = "Origin Country")),
+      paper_bgcolor = task4_theme$paper_bgcolor,
+      plot_bgcolor  = task4_theme$plot_bgcolor,
+      font = task4_theme$font,
+      margin = list(t = 50, b = 50, l = 50, r = 20)
+    )
+}
+```
+
+### Infrastructure Level Clustering Scatter Plot
+
+```{r}
+if(exists("ev_models")) {
+  plot_ly(ev_models, x = ~origin_country, y = ~age_2025, color = ~origin_country, type = "box") %>%
+    layout(
+      title = list(text = "Innovation Speed: Model Age Distribution", font = list(color = "white", size = 14)),
+      xaxis = modifyList(task4_theme$xaxis, list(title = "Country")),
+      yaxis = modifyList(task4_theme$yaxis, list(title = "Model Age (Years)")),
+      paper_bgcolor = task4_theme$paper_bgcolor,
+      plot_bgcolor  = task4_theme$plot_bgcolor,
+      font = task4_theme$font,
+      showlegend = FALSE,
+      margin = list(t = 50, b = 40, l = 40, r = 20)
+    )
+}
+```
+
+
+
+Data Tables
+===========================
+
+Row {.tabset}
+---------------------
+
+### Global Stations
+
+```{r}
+# Use DT for interactive searching/sorting without a server
+if(exists("stations_world")) {
+  DT::datatable(
+    stations_world,
+    options = list(
+      pageLength = 20,    # Show 15 rows per page
+      scrollX = TRUE,     # Allow horizontal scrolling
+      dom = 'Bfrtip'      # Basic layout elements
+    )
+  )
+}
+```
+
+### City Stations
+```{r}
+if(exists("stations_city")) {
+  DT::datatable(
+    stations_city,
+    options = list(pageLength = 20, scrollX = TRUE)
+  )
+}
+```
+
+### World Summary
+```{r}
+if(exists("world_summary")) {
+  DT::datatable(
+    world_summary,
+    options = list(pageLength = 20, scrollX = TRUE)
+  )
+}
+```
+
+### Country Summary
+```{r}
+if(exists("country_summary")) {
+  DT::datatable(
+    country_summary,
+    options = list(pageLength = 20, scrollX = TRUE)
+  )
+}
+```
+
+### EV Models
+```{r}
+if(exists("ev_models")) {
+  DT::datatable(
+    ev_models,
+    options = list(pageLength = 20, scrollX = TRUE)
+  )
+}
+```
+

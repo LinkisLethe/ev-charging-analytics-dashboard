@@ -1,0 +1,202 @@
+/* =========================================================
+   1. Global Typography & Colors
+   ========================================================= */
+
+/* Unified font family for all main elements */
+body, 
+.navbar, 
+.value-box, 
+.nav-tabs, 
+table, 
+.dataTables_wrapper {
+  font-family: Calibri, "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+  font-size: 14px;
+}
+
+/* Global Dark Background #0d1117 
+   Applied to Body, Panels, Wells, and the Vertical Tab container */
+body,
+.panel,
+.well,
+.vertical-tabs,
+.vertical-tabs > .tab-content {
+  background-color: #0d1117 !important;
+  border-color: #0d1117 !important; /* Hides default borders on panels */
+}
+
+/* =========================================================
+   2. Custom Vertical Tabs Layout (Flexbox)
+   ========================================================= */
+
+/* Main container: Forces horizontal row layout */
+.vertical-tabs {
+  display: flex !important;
+  flex-direction: row !important;
+  border: 1px solid #2c3e50;
+  height: 100%;
+}
+
+/* Left Sidebar: Stacks buttons vertically */
+.vertical-tabs > .nav-tabs {
+  display: flex;
+  flex-direction: column;
+  width: 250px;       /* Fixed width */
+  min-width: 250px;   /* Prevent crushing */
+  height: 100%;
+  border-right: 2px solid #2c3e50;
+  border-bottom: none;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+/* Tab Buttons (List Items) */
+.vertical-tabs > .nav-tabs > li {
+  flex: 1;            /* Distribute height equally */
+  display: flex;      /* Allow link to fill area */
+  margin-bottom: 0;
+}
+
+/* Tab Links (The clickable area) */
+.vertical-tabs > .nav-tabs > li > a {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: none;
+  border-bottom: 1px solid #2c3e50;
+  border-radius: 0;
+  margin: 0;
+  
+  /* Default State Colors */
+  background-color: #161b22;
+  color: #8b949e;
+  font-weight: bold;
+}
+
+/* Active / Hover / Focus States */
+.vertical-tabs > .nav-tabs > li.active > a, 
+.vertical-tabs > .nav-tabs > li.active > a:hover, 
+.vertical-tabs > .nav-tabs > li.active > a:focus {
+  background-color: #2980b9; /* Active Blue */
+  color: white;
+}
+
+.vertical-tabs > .nav-tabs > li > a:hover {
+  background-color: #2c3e50; /* Hover Grey */
+  color: white;
+}
+
+/* Right Content Area: Critical fix to fill remaining width */
+.vertical-tabs > .tab-content {
+  flex: 1;
+  width: auto; 
+  height: 100%;
+  padding: 10px;
+  overflow: hidden;
+}
+
+/* Fix for Plotly redraws during tab switching */
+.tab-pane {
+  height: 100%;
+  width: 100%;
+}
+
+/* =========================================================
+   3. Navbar (Header) Styles
+   ========================================================= */
+
+/* Navbar Background */
+.navbar,
+.navbar-default,
+.navbar-fixed-top {
+  background-color: #14161c !important;
+  border-color: #14161c !important;
+}
+
+/* Dashboard Title */
+.navbar-brand {
+  color: #f5f5f5 !important;
+  font-size: 18px !important;
+  font-weight: 600;
+}
+
+/* Navbar Links */
+.navbar-nav > li > a {
+  color: #d0d0d0 !important;
+  font-size: 14px !important;
+}
+
+/* Active Tab in Navbar */
+.navbar-nav > .active > a {
+  background-color: #22252f !important;
+  color: #33ccff !important;
+  font-weight: 600;
+}
+
+/* =========================================================
+   4. ValueBox Component
+   ========================================================= */
+
+.value-box {
+  background-color: #171b22 !important;
+  border: 1px solid #252b36 !important;
+  min-height: 90px !important;
+  padding: 14px 18px !important;
+  
+  /* Flexbox for alignment */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Main Value */
+.value-box .value {
+  font-size: clamp(18px, 2.4vw, 30px) !important;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+/* Subtitles */
+.value-box .subtitle,
+.value-box .caption {
+  font-size: clamp(12px, 1.2vw, 15px) !important;
+  color: #cccccc !important;
+}
+
+/* Icon */
+.value-box .icon i {
+  font-size: clamp(28px, 3.5vw, 50px) !important;
+  color: #4c566a !important;
+  opacity: 0.35;
+}
+
+/* =========================================================
+   5. Inner Navigation Tabs (Non-sidebar)
+   ========================================================= */
+
+.nav-tabs > li > a {
+  color: #cccccc !important;
+  background-color: #11141b !important;
+  font-size: 20px !important;
+}
+
+.nav-tabs > li.active > a {
+  background-color: #22252f !important;
+  color: #33ccff !important;
+  font-weight: 600;
+}
+
+/* =========================================================
+   6. DataTables Customization
+   ========================================================= */
+
+table.dataTable {
+  font-size: 14px !important;
+}
+
+.dataTables_wrapper .dataTables_filter label,
+.dataTables_wrapper .dataTables_length label {
+  font-size: 13px !important;
+  color: #cccccc !important;
+}

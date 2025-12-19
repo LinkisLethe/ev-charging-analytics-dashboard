@@ -1,0 +1,215 @@
+---
+title: "01 Data Inspection"
+date: "2025-12-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+# Load necessary libraries for data manipulation and visualization
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tibble)
+```
+
+## 1. Data Source Overview
+
+In this project, we use an open EV infrastructure dataset. It contains five CSV files at different levels of abstraction:
+
+-   `charging_station.csv`: Station-level charging infrastructure data.
+-   `charging_station_ml.csv`: City-level charging infrastructure data.
+-   `country_summary.csv`: Compact country-level charging summary.
+-   `world_summary.csv`: Detailed country-level infrastructure profile.
+-   `ev_models.csv`: EV model-level information (brand, powertrain, origin, etc.).
+
+In this notebook, we perform an initial inspection of these raw datasets to understand their structure, size, and basic data quality.
+
+## 2. Load Raw Datasets
+
+We use `read_csv` with UTF-8 encoding to ensure all characters are loaded correctly.
+
+```{r load-data}
+# Define the path to raw data
+base_path <- "dataset/data_raw/"
+
+# Load datasets with UTF-8 encoding
+charging_station <- read_csv(
+  paste0(base_path, "charging_station.csv"),
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+charging_station_ml <- read_csv(
+  paste0(base_path, "charging_station_ml.csv"),
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+country_summary <- read_csv(
+  paste0(base_path, "country_summary.csv"),
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+ev_models <- read_csv(
+  paste0(base_path, "ev_models.csv"),
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+world_summary <- read_csv(
+  paste0(base_path, "world_summary.csv"),
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+```
+
+## 3. Basic Dimensions (Rows x Columns)
+
+We check the size of each dataset to get an idea of the data volume.
+
+```{r dimensions}
+data_dims <- tibble::tibble(
+  dataset = c("charging_station",
+              "charging_station_ml",
+              "country_summary",
+              "world_summary",
+              "ev_models"),
+  n_rows = c(
+    nrow(charging_station),
+    nrow(charging_station_ml),
+    nrow(country_summary),
+    nrow(world_summary),
+    nrow(ev_models)
+  ),
+  n_cols = c(
+    ncol(charging_station),
+    ncol(charging_station_ml),
+    ncol(country_summary),
+    ncol(world_summary),
+    ncol(ev_models)
+  )
+)
+
+# Display the dimensions table
+data_dims
+```
+
+## 4. Column Names & Types
+
+We use `glimpse()` to preview the column names and data types (e.g., character, double).
+
+#### 4.1 `charging_station.csv`
+```{r inspect-charging-station}
+glimpse(charging_station)
+```
+
+#### 4.2 `charging_station_ml.csv`
+```{r inspect-charging-ml}
+glimpse(charging_station_ml)
+```
+
+#### 4.3 `country_summary.csv`
+```{r inspect-country-summary}
+glimpse(country_summary)
+```
+
+#### 4.4 `world_summary.csv`
+```{r inspect-world-summary}
+glimpse(world_summary)
+```
+
+#### 4.5 `ev_models.csv`
+```{r inspect-ev-models}
+glimpse(ev_models)
+```
+
+## 5. Missing Values Overview
+
+**Strategy:** We calculate the number of `NA` (missing values) in each column to determine our data cleaning strategy later.
+
+#### 5.1 `charging_station.csv`
+```{r}
+colSums(is.na(charging_station))
+```
+
+#### 5.2 `charging_station_ml.csv`
+```{r}
+colSums(is.na(charging_station_ml))
+```
+
+#### 5.3 `country_summary.csv`
+```{r}
+colSums(is.na(country_summary))
+```
+
+#### 5.4 `world_summary.csv`
+```{r}
+colSums(is.na(world_summary))
+```
+
+#### 5.5 `ev_models.csv`
+```{r}
+colSums(is.na(ev_models))
+```
+
+## 6. Basic Value Distributions
+
+**Strategy:** We plot histograms for a few key numerical variables to check for outliers or unreasonable values (e.g., negative counts).
+
+#### 6.1 Station Count (World Level)
+Checking `station_count` in the `world_summary` dataset.
+
+```{r}
+summary(world_summary$station_count)
+
+# Using log scale because counts vary significantly between countries
+ggplot(world_summary, aes(x = log10(station_count + 1))) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of station_count in world_summary (Log Scale)") +
+  theme_minimal()
+```
+
+#### 6.2 Station Count (City Level)
+Checking `station_count` in the `charging_station_ml` dataset.
+
+```{r}
+summary(charging_station_ml$station_count)
+
+ggplot(charging_station_ml, aes(x = log10(station_count + 1))) +
+  geom_histogram(bins = 30, fill = "orange", color = "white") +
+  labs(title = "Distribution of station_count in charging_station_ml (Log Scale)") +
+  theme_minimal()
+```
+
+#### 6.3 EV Model Year
+Checking `first_year` in the `ev_models` dataset to see the age distribution of models.
+
+```{r}
+summary(ev_models$first_year)
+
+ggplot(ev_models, aes(x = first_year)) +
+  geom_histogram(bins = 20, fill = "forestgreen", color = "white") +
+  labs(title = "Distribution of EV Model Release Years") +
+  theme_minimal()
+```
+
+## 7. Initial Observations
+
+- **Data Loading:** All five CSV files were successfully loaded into R without errors.
+- **Data Structure:**
+    - `charging_station.csv` contains detailed station-level data, including coordinates.
+    - `charging_station_ml.csv` aggregates data at the city level.
+    - `world_summary` contains detailed technical indicators like `dc_fast_station_count`.
+- **Data Quality:**
+    - Missing values are primarily found in location-related fields (e.g., `city`, `state_province`) in the station-level data.
+    - The country-level tables have very few missing values in key metrics.
+    - Numeric distributions appear reasonable (no negative values for counts).
+    
+**Next Steps:**
+Based on these observations, the raw data is relatively clean. In the next step (`02_data_preprocessing.Rmd`), we will handle the few missing values and standardize the column names for the dashboard.
