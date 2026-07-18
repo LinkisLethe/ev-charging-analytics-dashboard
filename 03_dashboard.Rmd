@@ -17,7 +17,8 @@ output:
 packages <- c(
   "flexdashboard", "knitr", "DT", "rpivotTable", "ggplot2",
   "plotly", "dplyr", "openintro", "highcharter", "ggvis",
- "leaflet", "leafgl", "sf", "readr"
+  "leaflet", "leafgl", "sf", "readr", "ineq", "tidyverse",
+  "viridis", "shiny"
 )
 
 new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
