@@ -1,7 +1,7 @@
 # EV Charging Analytics Dashboard
 
 [![R](https://img.shields.io/badge/R-project-276DC3?style=flat-square&logo=r&logoColor=white)](https://www.r-project.org/)
-[![Validation](https://img.shields.io/github/actions/workflow/status/LinkisLethe/ev-charging-analytics-dashboard/validate.yml?branch=main&style=flat-square&label=validation)](https://github.com/LinkisLethe/ev-charging-analytics-dashboard/actions/workflows/validate.yml)
+[![Validation](https://img.shields.io/github/actions/workflow/status/LinkisLethe/EV_ChargingAnalytics/validate.yml?branch=main&style=flat-square&label=validation)](https://github.com/LinkisLethe/EV_ChargingAnalytics/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/code%20license-MIT-2ea44f?style=flat-square)](LICENSE)
 
 [中文说明](README.zh-CN.md)
